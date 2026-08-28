@@ -1,0 +1,124 @@
+networks:
+  pipeline-net:
+    driver: bridge
+
+volumes:
+  hdfs-namenode:
+  hdfs-datanode:
+  airflow-db:
+
+services:
+  # ---------- Kafka stack ----------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    networks: [pipeline-net]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    networks: [pipeline-net]
+    depends_on: [zookeeper]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: one for other containers, one for your host machine (VS Code / producer script)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks: [pipeline-net]
+    depends_on: [kafka]
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+  # ---------- HDFS ----------
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    networks: [pipeline-net]
+    environment:
+      CLUSTER_NAME: pipeline-cluster
+    volumes:
+      - hdfs-namenode:/hadoop/dfs/name
+    ports:
+      - "9870:9870"
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    networks: [pipeline-net]
+    depends_on: [namenode]
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    volumes:
+      - hdfs-datanode:/hadoop/dfs/data
+
+  # ---------- Spark ----------
+  spark-master:
+    image: bitnamilegacy/spark:3.5
+    container_name: spark-master
+    networks: [pipeline-net]
+    environment:
+      SPARK_MODE: master
+    ports:
+      - "8090:8080"   # Spark UI (moved off 8080 to avoid clashing with Airflow)
+      - "7077:7077"
+    volumes:
+      - ./jobs:/opt/jobs
+      - ./data:/opt/data
+
+  spark-worker:
+    image: bitnamilegacy/spark:3.5
+    container_name: spark-worker
+    networks: [pipeline-net]
+    depends_on: [spark-master]
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+    volumes:
+      - ./jobs:/opt/jobs
+      - ./data:/opt/data
+
+  # ---------- Airflow ----------
+  airflow-db:
+    image: postgres:15
+    container_name: airflow-db
+    networks: [pipeline-net]
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db:/var/lib/postgresql/data
+
+  airflow:
+    image: apache/airflow:2.9.1
+    container_name: airflow
+    networks: [pipeline-net]
+    depends_on: [airflow-db]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./jobs:/opt/airflow/jobs
+    command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com; airflow webserver & airflow scheduler"
