@@ -2,3 +2,4 @@ data/*.csv
 *.parquet
 __pycache__/
 .env
+.git-broken/
