@@ -11,16 +11,21 @@ event streaming with batch analytics, feeding a unified Power BI dashboard.
 
 ## Architecture
 
-Two parallel lanes converge into a single Power BI dashboard:
+Two parallel lanes, each with its own dashboard:
 
 **Real-time lane:** `Kaggle CSV -> Replay Producer (Python) -> Kafka -> Spark Structured
-Streaming -> Power BI (streaming dataset)`
+Streaming -> shared JSON file -> Streamlit dashboard`
 
 **Batch lane:** `Kaggle CSV -> HDFS raw -> Spark batch ETL -> HDFS curated (Parquet) ->
 Power BI (import model)`
 
 **Orchestration:** Apache Airflow schedules the batch pipeline runs and triggers the
 Power BI dataset refresh; it also monitors the health of the always-on streaming job.
+
+> Note: the real-time lane originally targeted a Power BI streaming dataset, but
+> switched to a Streamlit dashboard reading a shared JSON-lines file
+> (`data/streaming_kpis.jsonl`) written by the Spark job. The batch lane still
+> targets Power BI import mode.
 
 ## Repo structure
 
@@ -61,9 +66,11 @@ project-root/
 |-------|-------|--------|
 | 1. Infrastructure | Docker Compose stack for Kafka, HDFS, Spark, Airflow | Done |
 | 2. Ingestion | Replay producer script, Kafka topic design | Done |
-| 3. Processing | Spark Structured Streaming job + Spark batch ETL job | Not started |
+| 3. Processing (streaming) | Spark Structured Streaming job, writes windowed KPIs to shared file | Done |
+| 3. Processing (batch) | Spark batch ETL job (HDFS raw -> curated Parquet) | In progress |
 | 4. Orchestration | Airflow DAGs for batch runs and Power BI refresh | Not started |
-| 5. Serving | Power BI streaming dataset + import model dashboard | Not started |
+| 5. Serving (streaming) | Streamlit dashboard reading `data/streaming_kpis.jsonl` | In progress |
+| 5. Serving (batch) | Power BI import model dashboard | Not started |
 
 ## Notes for contributors
 
@@ -72,3 +79,6 @@ project-root/
 - Do not commit the raw dataset or any API tokens/credentials — see `.gitignore`.
 - Kafka is reachable at `localhost:9092` from the host machine, or `kafka:29092`
   from inside another container.
+- The streaming job writes to `data/streaming_kpis.jsonl` — read this file fresh on
+  each refresh (it's newline-delimited JSON, appended continuously) rather than
+  trying to tail it incrementally.
