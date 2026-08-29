@@ -59,6 +59,23 @@ project-root/
    ```
 5. Confirm services are up — see `docker/README.md` for the full port map and
    access URLs (Kafka UI, HDFS NameNode UI, Spark UI, Airflow UI).
+6. Install the Python dependencies for the ingestion/serving scripts:
+   ```bash
+   pip install -r requirements.txt
+   ```
+7. Run the streaming lane end to end (each in its own terminal):
+   ```bash
+   # Terminal 1 — Spark Structured Streaming job (leave running)
+   docker exec -it --user root -e HOME=/root -e HADOOP_USER_NAME=spark spark-master \
+     spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
+     --conf spark.jars.ivy=/root/.ivy2 /opt/jobs/spark_streaming.py
+
+   # Terminal 2 — producer (sends a batch, then exits)
+   python jobs/producer.py --csv data/2019-Oct.csv --topic ecommerce-events --delay 0.05 --limit 3000
+
+   # Terminal 3 — dashboard (leave running)
+   streamlit run jobs/streamlit_dashboard.py
+   ```
 
 ## Project stages
 
@@ -69,7 +86,7 @@ project-root/
 | 3. Processing (streaming) | Spark Structured Streaming job, writes windowed KPIs to shared file | Done |
 | 3. Processing (batch) | Spark batch ETL job (HDFS raw -> curated Parquet) | In progress |
 | 4. Orchestration | Airflow DAGs for batch runs and Power BI refresh | Not started |
-| 5. Serving (streaming) | Streamlit dashboard reading `data/streaming_kpis.jsonl` | In progress |
+| 5. Serving (streaming) | Streamlit dashboard reading `data/streaming_kpis.jsonl` | Done |
 | 5. Serving (batch) | Power BI import model dashboard | Not started |
 
 ## Notes for contributors
