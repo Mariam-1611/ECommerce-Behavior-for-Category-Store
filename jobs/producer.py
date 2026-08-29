@@ -25,6 +25,17 @@ def parse_args():
     parser.add_argument("--delay", type=float, default=0.01, help="Seconds to sleep between messages")
     parser.add_argument("--limit", type=int, default=None, help="Stop after N messages (omit to run the full file)")
     parser.add_argument("--key-field", default="user_id", help="Column to use as the Kafka message key")
+    parser.add_argument(
+        "--skip-rows",
+        type=int,
+        default=0,
+        help=(
+            "Skip this many data rows before sending. Use this to resume further into "
+            "the file on a re-run — otherwise every run starts from row 0, and Spark's "
+            "watermark will silently drop those as too-late duplicates of what it's "
+            "already processed."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -44,10 +55,18 @@ def main():
     sent = 0
     start = time.time()
 
-    print(f"Streaming '{args.csv}' -> topic '{args.topic}' @ {args.bootstrap_servers}")
+    skip = args.skip_rows
+    print(
+        f"Streaming '{args.csv}' -> topic '{args.topic}' @ {args.bootstrap_servers}"
+        + (f" (starting at row {skip})" if skip else "")
+    )
+
+    # skiprows=range(1, skip+1) skips the first `skip` data rows while keeping the
+    # header (row 0) intact — needed so pandas still knows the column names
+    skiprows = range(1, skip + 1) if skip else None
 
     try:
-        for chunk in pd.read_csv(args.csv, chunksize=args.chunksize):
+        for chunk in pd.read_csv(args.csv, chunksize=args.chunksize, skiprows=skiprows):
             # NaN isn't valid JSON — normalize missing values to None before serializing
             chunk = chunk.where(pd.notnull(chunk), None)
 
@@ -74,6 +93,7 @@ def main():
 
     elapsed = time.time() - start
     print(f"Done. Sent {sent} messages in {elapsed:.1f}s ({sent / elapsed:.1f} msgs/sec avg).")
+    print(f"Rows covered: {skip} to {skip + sent} (use --skip-rows {skip + sent} to continue from here).")
 
 
 if __name__ == "__main__":
