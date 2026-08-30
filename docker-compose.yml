@@ -121,4 +121,6 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./jobs:/opt/airflow/jobs
+      # Needed so the streaming health-monitor DAG can check streaming_kpis.jsonl's timestamp
+      - ./data:/opt/airflow/data
     command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com; airflow webserver & airflow scheduler"
